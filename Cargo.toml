@@ -6,4 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-macro_lib = {path = "macro_lib"}
+serde_json = "*"
+ron = "*"
+serde = {version = "*", features = ["derive"]}
+teloxide = {version = "*", features = ["full"]}
+distance = "0.4.0"
+tokio = {version = "*", features = ["full"]}
+log = "*"
+simplelog = "*"
