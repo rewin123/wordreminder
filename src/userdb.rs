@@ -32,7 +32,9 @@ impl UserDB {
         match std::fs::read_to_string(read_path) {
             Ok(content) => {
                 match ron::from_str(content.as_str()) {
-                    Ok(user) => user,
+                    Ok(user) => {
+                        return user;
+                    },
                     Err(_) => {
 
                     },

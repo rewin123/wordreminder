@@ -1,5 +1,6 @@
 
 use serde::{Deserialize, Serialize};
+use rand::Rng;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, PartialEq)]
 pub struct Word {
@@ -20,5 +21,33 @@ impl Word {
 
     pub fn pickup_rate(&self) -> f32 {
         1.0 - self.P()
+    }
+
+    pub fn sample(words : &Vec<Word>) -> Word {
+        let mut sum = 0.0;
+        for w in words {
+            sum += w.pickup_rate();
+        }
+
+        let mut rnd = rand::thread_rng();
+
+        let sample = rnd.gen_range(0.0..sum);
+
+        let mut local_sum = 0.0;
+        for w in words {
+            local_sum += w.pickup_rate();
+            if local_sum >= sample {
+                return w.clone();
+            }
+        }
+        return words[0].clone();
+    }
+
+    pub fn sample_vec(words : &Vec<Word>, count : usize) -> Vec<Word> {
+        let mut res = vec![];
+        for idx in 0..count {
+            res.push(Word::sample(words));
+        }
+        res
     }
 }

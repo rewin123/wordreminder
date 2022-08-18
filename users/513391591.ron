@@ -1,0 +1,16 @@
+(
+    id: 513391591,
+    words: [
+        (
+            ru_name: "нет",
+            eng_name: "いいえ",
+            w: 0.0,
+        ),
+        (
+            ru_name: "да",
+            eng_name: "はい",
+            w: -10.0,
+        ),
+    ],
+    state: Default,
+)

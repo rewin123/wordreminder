@@ -4,10 +4,24 @@ use rand::Rng;
 
 use crate::word::Word;
 
+#[derive(Debug, Serialize, Deserialize)]
+enum Language {
+    Eng,
+    Rus
+}
+
+
+impl Default for Language {
+    fn default() -> Self {
+        Language::Rus
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct TestState {
-    words : Vec<Word>,
-    idx : i32
+    pub words : Vec<Word>,
+    pub idx : i32,
+    pub q_lang : Language
 }
 
 #[derive(Debug, Serialize, Deserialize)]

@@ -1,7 +1,9 @@
 use std::error::Error;
 
 use crate::*;
+use rand::seq::SliceRandom;
 use ron::ser;
+use serde::{Serialize, Deserialize};
 use teloxide::{
     prelude::*, 
     utils::command::{BotCommands, self},
@@ -22,11 +24,45 @@ async fn messsage_processing(
     Ok(())
 }
 
-fn make_keyboard(user : &User) -> InlineKeyboardMarkup {
+#[derive(Serialize, Deserialize)]
+enum ButtonCallback {
+    TestAnswer(i32, bool)
+}
+
+fn make_eng_keyboard(user : &User) -> InlineKeyboardMarkup {
     let mut keyboard: Vec<InlineKeyboardButton> = vec![];
 
-    let mut answers = vec![];
+    if let UserState::Testing(test) = &user.state {
+        let mut answers = vec![];
 
+        let cur_word = &test.words[test.idx as usize];
+        let mut correct_words = vec![];
+        for w in &user.words {
+            if (w.eng_name.len() as i32 - cur_word.eng_name.len() as i32).abs() <= 1 {
+                correct_words.push(w.clone());
+            }
+        }
+        answers = Word::sample_vec(&correct_words, 3);
+        answers.push(cur_word.clone());
+        answers.shuffle(&mut rand::thread_rng());
+
+        for a in answers {
+
+            let data;
+            if a.eng_name == cur_word.eng_name {
+                data = ButtonCallback::TestAnswer(test.idx, true);
+            } else {
+                data = ButtonCallback::TestAnswer(test.idx, false);
+            }
+
+            let but = 
+                InlineKeyboardButton::callback(
+                    a.eng_name, 
+                    ron::to_string(&data).unwrap());
+            
+            keyboard.push(but);
+        }
+    }
 
     InlineKeyboardMarkup::new(vec![keyboard])
 }
@@ -74,8 +110,9 @@ async fn command_processing(
         }
         Command::Test => {
             user.prepare_test(10);
+            server.user_db.set_user(&user);
 
-
+            
         },
         Command::Del(_) => todo!(),
         Command::Table => {
