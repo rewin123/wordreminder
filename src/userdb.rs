@@ -1,3 +1,5 @@
+use teloxide::prelude::*;
+
 use crate::user::User;
 
 #[derive(Clone)]
@@ -20,13 +22,13 @@ impl UserDB {
         std::fs::create_dir(self.dir_path.as_str());
     }
 
-    pub fn get_user_path(&self, id : i32) -> String {
+    pub fn get_user_path(&self, id : i64) -> String {
         format!("{}/{}.ron", self.dir_path, id)
     }
 
-    pub fn get_user(&self, id : i32) -> User {
+    pub fn get_user(&self, id : ChatId) -> User {
 
-        let read_path = self.get_user_path(id);
+        let read_path = self.get_user_path(id.0);
         match std::fs::read_to_string(read_path) {
             Ok(content) => {
                 match ron::from_str(content.as_str()) {
@@ -41,7 +43,9 @@ impl UserDB {
             }
         }
 
-        User { id: id, words: vec![] }
+        let mut user = User::default();
+        user.id = id.0;
+        user
     }
 
     pub fn set_user(&self, user : &User) {

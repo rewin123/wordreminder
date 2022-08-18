@@ -13,13 +13,15 @@ async fn main() {
         ColorChoice::Auto
     );
     info!("Start bot");
-    let token = "5698748623:AAGYnzBFJRTNmG1j9iW3ll04QJ1TxlcOEgE";
+    // let token = "5698748623:AAGYnzBFJRTNmG1j9iW3ll04QJ1TxlcOEgE";
 
-    let bot = Bot::new(token).auto_send();
+    // let bot = Bot::new(token).auto_send();
 
-    teloxide::repl(bot, |message: Message, bot: AutoSend<Bot>| async move {
-        bot.send_dice(message.chat.id).await?;
-        respond(())
-    })
-    .await;
+    // teloxide::repl(bot, |message: Message, bot: AutoSend<Bot>| async move {
+    //     bot.send_dice(message.chat.id).await?;
+    //     respond(())
+    // })
+    // .await;
+
+    bot_start().await;
 }
