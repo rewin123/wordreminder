@@ -1,11 +1,12 @@
 use serde::{Serialize, Deserialize};
 use teloxide::{prelude::*};
 use rand::Rng;
+use log::*;
 
 use crate::word::Word;
 
-#[derive(Debug, Serialize, Deserialize)]
-enum Language {
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Language {
     Eng,
     Rus
 }
@@ -17,17 +18,19 @@ impl Default for Language {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct TestState {
     pub words : Vec<Word>,
     pub idx : i32,
-    pub q_lang : Language
+    pub q_lang : Language,
+    pub score : i32
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum UserState {
     Default,
-    Testing(TestState)
+    Testing(TestState),
+    AddWord(Word)
 }
 
 impl Default for UserState {
@@ -87,7 +90,20 @@ impl User {
         }
 
         test.idx = 0;
+        test.words = target_words;
 
         self.state = UserState::Testing(test);
+
+        info!("Prepaired test {:?}", self.state.clone());
+    }
+
+    pub fn get_word_idx(&self, word : Word) -> Option<usize> {
+        for idx in 0..self.words.len() {
+            let w = &self.words[idx];
+            if w.ru_name == word.ru_name || w.eng_name == word.eng_name {
+                return Some(idx);
+            }
+        }
+        return None;
     }
 }

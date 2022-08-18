@@ -13,13 +13,46 @@ use teloxide::{
         InputMessageContentText,
     },};
 use tokio::*;
+use log::*;
+use crate::UserState::AddWord;
 
 async fn messsage_processing(
     bot: AutoSend<Bot>,
     message: Message,
     server : Server) -> Result<(), Box<dyn Error + Send + Sync>> {
 
-        
+    let mut user = server.user_db.get_user(message.chat.id);
+
+    if let UserState::AddWord(mut word) = user.state.clone() {
+        if word.ru_name == "" {
+            word.ru_name = message.text().unwrap().to_string();
+            bot.send_message(message.chat.id, "Перевод слова:").await;
+            user.state = UserState::AddWord(word);
+        } else {
+            word.eng_name = message.text().unwrap().to_string();
+
+            match user.get_word_idx(word.clone()) {
+                None => {
+                    user.words.push(word);
+                    bot.send_message(message.chat.id, "Отлично, слово добавлено в словарик").await;
+                }
+                Some(idx) => {
+                    bot.send_message(
+                        message.chat.id,
+                        format!("Отлично, слово {}:{} заменено на {}:{}",
+                            user.words[idx].ru_name,
+                            user.words[idx].eng_name,
+                            word.ru_name,
+                            word.eng_name)).await;
+                    user.words[idx].ru_name = word.ru_name;
+                    user.words[idx].eng_name = word.eng_name;
+                }
+            }
+            user.state = UserState::Default;
+        }
+
+        server.user_db.set_user(&user);
+    }
 
     Ok(())
 }
@@ -38,10 +71,11 @@ fn make_eng_keyboard(user : &User) -> InlineKeyboardMarkup {
         let cur_word = &test.words[test.idx as usize];
         let mut correct_words = vec![];
         for w in &user.words {
-            if (w.eng_name.len() as i32 - cur_word.eng_name.len() as i32).abs() <= 1 {
+            if (w.eng_name.len() as i32 - cur_word.eng_name.len() as i32).abs() <= 4 {
                 correct_words.push(w.clone());
             }
         }
+
         answers = Word::sample_vec(&correct_words, 3);
         answers.push(cur_word.clone());
         answers.shuffle(&mut rand::thread_rng());
@@ -70,26 +104,61 @@ fn make_eng_keyboard(user : &User) -> InlineKeyboardMarkup {
 async fn callback_handler(
     q: CallbackQuery,
     bot: AutoSend<Bot>,
-    serer : Server
+    server : Server
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if let Some(version) = q.data {
-        let text = format!("You chose: {version}");
+    info!("Get button callback: {:?}", q);
+    let mut user = server.user_db.get_user(q.message.clone().unwrap().chat.id);
+    if let Some(data) = q.data {
+        info!("Get data from button callback {}", data);
+        let callback_enum = ron::from_str::<ButtonCallback>(data.as_str()).unwrap();
+        match callback_enum {
+            ButtonCallback::TestAnswer(idx, correct) => {
+                info!("Button callback is TestAnswer {} {}", idx, correct);
+                if let UserState::Testing(mut test) = user.state.clone() {
+                    if test.idx == idx {
+                        change_word_score(&mut user, correct, &mut test);
 
-        match q.message {
-            Some(Message { id, chat, .. }) => {
-                bot.edit_message_text(chat.id, id, text).await?;
-            }
-            None => {
-                if let Some(id) = q.inline_message_id {
-                    bot.edit_message_text_inline(id, text).await?;
+                        test.idx += 1;
+                        if (test.idx as usize) < test.words.len() {
+                            user.state = UserState::Testing(test.clone());
+                            send_test_msg(&q.message.unwrap(), &bot, &user).await;
+                        } else {
+                            //some global information
+                            let mut msg = format!("Тест закончился!\
+                            Ты ответил правильно на {} из {} ({}%)",
+                                                  test.score,
+                                                  test.words.len(),
+                                                  ((test.score as f32) / (test.words.len() as f32) * 100.0) as i32);
+
+                            bot.send_message(q.message.clone().unwrap().chat.id, msg).await;
+                            user.state = UserState::Default;
+                        }
+
+                        server.user_db.set_user(&user);
+                    }
                 }
             }
         }
-
-        log::info!("You chose: {}", version);
     }
 
     Ok(())
+}
+
+fn change_word_score(user: &mut User, correct: bool, test: &mut TestState) {
+    let cur_word = test.words[test.idx as usize].clone();
+    let mut word_idx = 0;
+    for idx in 0..user.words.len() {
+        if cur_word.ru_name == user.words[idx].ru_name {
+            word_idx = idx;
+            break;
+        }
+    }
+    if correct {
+        user.words[word_idx].score_up();
+        test.score += 1;
+    } else {
+        user.words[word_idx].score_down();
+    }
 }
 
 async fn command_processing(
@@ -105,14 +174,14 @@ async fn command_processing(
         Command::Help => {
             bot.send_message(message.chat.id,Command::descriptions().to_string()).await?;
         },
-        Command::Add(ru_text, eng_text) => {
-            add_word_to_user(eng_text, ru_text, user, bot, message, server).await?;
+        Command::Add => {
+            add_word_to_user(user, bot, message, server).await?;
         }
         Command::Test => {
             user.prepare_test(10);
             server.user_db.set_user(&user);
 
-            
+            send_test_msg(&message, &bot, &user).await;
         },
         Command::Del(_) => todo!(),
         Command::Table => {
@@ -123,29 +192,39 @@ async fn command_processing(
     Ok(())
 }
 
+async fn send_test_msg(message: &Message, bot: &AutoSend<Bot>, user: &User) {
+    if let UserState::Testing(test) = &user.state {
+        let mut msg = format!("{} из {}.\n Веротность угадать ответ: {}%\n Выбери перевод слова: {} \n ",
+                                test.idx,
+                                test.words.len(),
+                                (test.words[test.idx as usize].P() * 100.0) as i32,
+                                test.words[test.idx as usize].ru_name,);
+
+        let keyboard = make_eng_keyboard(&user);
+
+        bot.send_message(
+            message.chat.id,
+            msg
+        ).reply_markup(keyboard)
+            .await;
+    }
+}
+
 async fn print_user_word_table(user: User, bot: AutoSend<Bot>, message: Message) -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut res  = String::from("Список слов:");
     let mut words = user.words.clone();
-    words.sort_by(|a, b| a.w.partial_cmp(&b.w).unwrap());
+    words.sort_by(|a, b| a.get_elo().partial_cmp(&b.get_elo()).unwrap());
     for w in &words {
-        res = format!("{}\n{}:{} {}", res, w.ru_name, w.eng_name, w.w);
+        res = format!("{}\n{}:{} {}", res, w.ru_name, w.eng_name, w.P());
     } 
     bot.send_message(message.chat.id, res).await?;
     Ok(())
 }
 
-async fn add_word_to_user(eng_text: String, ru_text: String, mut user: User, bot: AutoSend<Bot>, message: Message, server: Server) -> Result<(), Box<dyn Error + Send + Sync>> {
-    let mut word = Word::default();
-    word.eng_name = String::from(eng_text.clone());
-    word.ru_name = String::from(ru_text.clone());
-    if user.add_word(word) {
-        bot.send_message(message.chat.id, 
-            format!("Отлично слово {}:{} добавлено в словарик", &ru_text, &eng_text)).await?;
-    } else {
-        bot.send_message(message.chat.id, 
-            format!("Cлово {}:{} уже есть в словарике", ru_text, eng_text)).await?;
-    }
+async fn add_word_to_user(mut user: User, bot: AutoSend<Bot>, message: Message, server: Server) -> Result<(), Box<dyn Error + Send + Sync>> {
+    user.state = AddWord(Word::default());
     server.user_db.set_user(&user);
+    bot.send_message(message.chat.id, "Русский перевод слова:").await;
     Ok(())
 }
 
@@ -159,8 +238,9 @@ pub async fn bot_start() {
     let handler = dptree::entry()
         .branch(Update::filter_message()
                     .filter_command::<Command>()
-                    .endpoint(command_processing),
-                );
+                    .endpoint(command_processing))
+        .branch(Update::filter_message().endpoint(messsage_processing))
+        .branch(Update::filter_callback_query().endpoint(callback_handler));
 
     Dispatcher::builder(bot, handler)
         .dependencies(deps![server])
@@ -177,7 +257,7 @@ enum Command {
     #[command(description="отобразить этот текст.")]
     Help,
     #[command(description="добавить слово.", parse_with = "split")]
-    Add(String, String),
+    Add,
     #[command(description="быстрый тест.")]
     Test,
     #[command(description="удалить слово.")]
